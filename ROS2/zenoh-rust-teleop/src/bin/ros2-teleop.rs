@@ -13,7 +13,7 @@
 //
 use async_std::channel::bounded;
 use cdr::{CdrLe, Infinite};
-use clap::{arg, Command};
+use clap::Parser;
 use crossterm::{
     cursor::MoveToColumn,
     event::{Event, KeyCode, KeyEvent, KeyModifiers},
@@ -27,6 +27,45 @@ use zenoh::config::Config;
 use zenoh::prelude::*;
 use zenoh::Session;
 
+#[derive(Parser)]
+#[clap(author, about, long_about = None)]
+struct Cli {
+    /// The zenoh session mode (peer by default).
+    #[clap(short, long, possible_values =["peer","client"])]
+    mode: Option<String>,
+
+    /// Peer locators used to initiate the zenoh session.
+    #[clap(short = 'e', long, value_name = "LOCATOR")]
+    peer: Option<Vec<String>>,
+
+    /// Locators to listen on.
+    #[clap(short, long, value_name = "LOCATOR")]
+    listener: Option<Vec<String>>,
+
+    /// A configuration file.
+    #[clap(short, long, value_name = "FILE")]
+    config: Option<String>,
+
+    /// Disable the multicast-based scouting mechanism.
+    #[clap(long = "no-multicast-scouting")]
+    no_multicast: bool,
+
+    /// The 'cmd_vel' ROS2 topic
+    #[clap(long, default_value = "/rt/turtle1/cmd_vel")]
+    cmd_vel: String,
+
+    /// The 'rosout' ROS2 topic
+    #[clap(long, value_name = "topic", default_value = "/rt/rosout")]
+    rosout: String,
+
+    /// The angular scale.
+    #[clap(short, long, value_name = "FLOAT", default_value_t = 2.0)]
+    angular_scale: f64,
+
+    /// The linear scale.
+    #[clap(short = 'x', long, value_name = "FLOAT", default_value_t = 2.0)]
+    linear_scale: f64,
+}
 #[derive(Serialize, PartialEq)]
 struct Vector3 {
     x: f64,
@@ -185,37 +224,24 @@ async fn main() {
 }
 
 fn parse_args() -> (Config, String, String, f64, f64) {
-    let args = Command::new("zenoh-net sub example")
-        .args(&[
-            arg!(-m --mode [MODE]  "The zenoh session mode (peer by default).")
-                .possible_values(&["peer", "client"]),
-            arg!(-e --peer [LOCATOR] ...   "Peer locators used to initiate the zenoh session."),
-            arg!(-l --listener [LOCATOR] ...   "Locators to listen on."),
-            arg!(-c --config [FILE]      "A configuration file."),
-            arg!(--"no-multicast-scouting" "Disable the multicast-based scouting mechanism."),
-            arg!(--cmd_vel [topic] "The 'cmd_vel' ROS2 topic").default_value("/rt/turtle1/cmd_vel"),
-            arg!(--rosout [topic] "The 'rosout' ROS2 topic").default_value("/rt/rosout"),
-            arg!(-a --angular_scale [FLOAT] "The angular scale.").default_value("2.0"),
-            arg!(-x --linear_scale [FLOAT] "The linear scale.").default_value("2.0"),
-        ])
-        .get_matches();
+    let cli = Cli::parse();
 
-    let mut config = if let Some(conf_file) = args.value_of("config") {
+    let mut config = if let Some(conf_file) = cli.config {
         Config::from_file(conf_file).unwrap()
     } else {
         Config::default()
     };
-    if let Some(Ok(mode)) = args.value_of("mode").map(|mode| mode.parse()) {
+    if let Some(Ok(mode)) = cli.mode.map(|mode| mode.parse()) {
         config.set_mode(Some(mode)).unwrap();
     }
-    if args.is_present("no-multicast-scouting") {
+    if cli.no_multicast {
         config.scouting.multicast.set_enabled(Some(false)).unwrap();
     }
 
-    let cmd_vel = args.value_of("cmd_vel").unwrap().to_string();
-    let rosout = args.value_of("rosout").unwrap().to_string();
-    let angular_scale: f64 = args.value_of("angular_scale").unwrap().parse().unwrap();
-    let linear_scale: f64 = args.value_of("linear_scale").unwrap().parse().unwrap();
-
+    let cmd_vel = cli.cmd_vel;
+    let rosout = cli.rosout;
+    let angular_scale = cli.angular_scale;
+    let linear_scale = cli.linear_scale;
+    
     (config, cmd_vel, rosout, angular_scale, linear_scale)
 }
