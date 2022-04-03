@@ -131,7 +131,7 @@ async fn main() {
     loop {
         select!(
             // On sample received by the subsriber
-            sample = subscriber.next() => {
+            sample = subscriber.next().fuse() => {
                 let sample: Sample = sample.unwrap();
                 // copy to be removed if possible
                 // let buf = sample.payload.to_vec();
