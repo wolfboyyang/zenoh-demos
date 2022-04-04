@@ -24,8 +24,8 @@ readme = "./README.md"
 
 [dependencies]
 zenoh = { git = "https://github.com/eclipse-zenoh/zenoh.git" }
-async-std = { version = "=1.10.0", default-features = false, features = ["attributes",] }
-futures = "0.3.12"
+tokio = { version = "1", features = ["rt", "sync", "macros"] }
+tokio-stream = "0.1"
 serde = "1"
 serde_derive = "1"
 cdr = "0.2.4"

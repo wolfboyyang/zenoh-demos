@@ -11,18 +11,17 @@
 // Contributors:
 //   ADLINK zenoh team, <zenoh@adlink-labs.tech>
 //
-use async_std::channel::bounded;
 use cdr::{CdrLe, Infinite};
 use clap::Parser;
 use crossterm::{
     cursor::MoveToColumn,
     event::{Event, KeyCode, KeyEvent, KeyModifiers},
-    ExecutableCommand,
+    ExecutableCommand, Result,
 };
-use futures::prelude::*;
-use futures::select;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt;
+use tokio::sync::mpsc;
+use tokio_stream::StreamExt;
 use zenoh::config::Config;
 use zenoh::prelude::*;
 use zenoh::Session;
@@ -126,8 +125,8 @@ async fn pub_twist(session: &Session, cmd_key: &KeyExpr<'_>, linear: f64, angula
     }
 }
 
-#[async_std::main]
-async fn main() {
+#[tokio::main]
+async fn main() -> Result<()> {
     // Initiate logging
     env_logger::init();
 
@@ -147,18 +146,39 @@ async fn main() {
     // Note: enable raw mode for direct processing of key pressed, without having to hit ENTER...
     // Unfortunately, this mode doesn't process new line characters on output. Thus we have to call
     // `std::io::stdout().execute(MoveToColumn(0));` after each `println!`.
-    crossterm::terminal::enable_raw_mode().unwrap();
-    let (key_sender, key_receiver) = bounded::<Event>(10);
-    async_std::task::spawn(async move {
+    crossterm::terminal::enable_raw_mode()?;
+
+    let (key_sender, mut key_receiver) = mpsc::channel::<Event>(10);
+    tokio::spawn(async move {
         loop {
             match crossterm::event::read() {
+                Ok(Event::Key(KeyEvent {
+                    code: KeyCode::Esc,
+                    modifiers: _,
+                }))
+                | Ok(Event::Key(KeyEvent {
+                    code: KeyCode::Char('q'),
+                    modifiers: _,
+                })) => {
+                    break;
+                }
+                Ok(Event::Key(KeyEvent {
+                    code: KeyCode::Char('c'),
+                    modifiers,
+                })) => {
+                    if modifiers.contains(KeyModifiers::CONTROL) {
+                        break;
+                    }
+                }
                 Ok(ev) => {
                     if let Err(e) = key_sender.send(ev).await {
                         log::warn!("Failed to push Key Event: {}", e);
+                        break;
                     }
                 }
                 Err(e) => {
                     log::warn!("Input error: {}", e);
+                    break;
                 }
             }
         }
@@ -168,9 +188,9 @@ async fn main() {
     std::io::stdout().execute(MoveToColumn(0)).unwrap();
     // Events management loop
     loop {
-        select!(
-            // On sample received by the subsriber
-            sample = subscriber.next().fuse() => {
+        tokio::select!(
+            // On sample received by the subscriber
+            sample = subscriber.next()=> {
                 let sample: Sample = sample.unwrap();
                 // copy to be removed if possible
                 // let buf = sample.payload.to_vec();
@@ -184,43 +204,35 @@ async fn main() {
             },
 
             // On keyboard event received from the async_std channel
-            event = key_receiver.recv().fuse() => {
+            event = key_receiver.recv() => {
                 match event {
-                    Ok(Event::Key(KeyEvent { code: KeyCode::Up, modifiers: _ })) => {
+                    Some(Event::Key(KeyEvent { code: KeyCode::Up, modifiers: _ }))=> {
                         pub_twist(&session, &cmd_key, 1.0 * linear_scale, 0.0).await
                     },
-                    Ok(Event::Key(KeyEvent { code: KeyCode::Down, modifiers: _ })) => {
+                    Some(Event::Key(KeyEvent { code: KeyCode::Down, modifiers: _ })) => {
                         pub_twist(&session, &cmd_key, -1.0 * linear_scale, 0.0).await
                     },
-                    Ok(Event::Key(KeyEvent { code: KeyCode::Left, modifiers: _ })) => {
+                    Some(Event::Key(KeyEvent { code: KeyCode::Left, modifiers: _ })) => {
                         pub_twist(&session, &cmd_key, 0.0, 1.0 * angular_scale).await
                     },
-                    Ok(Event::Key(KeyEvent { code: KeyCode::Right, modifiers: _ })) => {
+                    Some(Event::Key(KeyEvent { code: KeyCode::Right, modifiers: _ })) => {
                         pub_twist(&session, &cmd_key, 0.0, -1.0 * angular_scale).await
                     },
-                    Ok(Event::Key(KeyEvent { code: KeyCode::Char(' '), modifiers: _ })) => {
+                    Some(Event::Key(KeyEvent { code: KeyCode::Char(' '), modifiers: _ })) => {
                         pub_twist(&session, &cmd_key, 0.0, 0.0).await
                     },
-                    Ok(Event::Key(KeyEvent { code: KeyCode::Esc, modifiers: _ })) |
-                    Ok(Event::Key(KeyEvent { code: KeyCode::Char('q'), modifiers: _ })) => {
-                        break
-                    },
-                    Ok(Event::Key(KeyEvent { code: KeyCode::Char('c'), modifiers })) => {
-                        if modifiers.contains(KeyModifiers::CONTROL) { break }
-                    },
-                    Ok(_) => (),
-                    Err(e) => {
-                        log::warn!("Input error: {}", e);
+                    Some(_) => (),
+                    None => {
+                        log::info!("Exit");
+                        break;
                     }
                 }
             }
         );
     }
-
     // Stop robot at exit
     pub_twist(&session, &cmd_key, 0.0, 0.0).await;
-
-    crossterm::terminal::disable_raw_mode().unwrap();
+    crossterm::terminal::disable_raw_mode()
 }
 
 fn parse_args() -> (Config, String, String, f64, f64) {
@@ -242,6 +254,6 @@ fn parse_args() -> (Config, String, String, f64, f64) {
     let rosout = cli.rosout;
     let angular_scale = cli.angular_scale;
     let linear_scale = cli.linear_scale;
-    
+
     (config, cmd_vel, rosout, angular_scale, linear_scale)
 }
