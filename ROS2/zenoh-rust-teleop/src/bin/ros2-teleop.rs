@@ -189,8 +189,8 @@ fn parse_args() -> (Config, String, String, f64, f64) {
         .args(&[
             arg!(-m --mode [MODE]  "The zenoh session mode (peer by default).")
                 .possible_values(&["peer", "client"]),
-            arg!(-e --peer [LOCATOR] ...   "Peer locators used to initiate the zenoh session."),
-            arg!(-l --listener [LOCATOR] ...   "Locators to listen on."),
+            arg!(-e --connect [ENDPOINT] ...   "Endpoints to connect to."),
+            arg!(-l --listen [ENDPOINT] ...   "Endpoints to listen on."),
             arg!(-c --config [FILE]      "A configuration file."),
             arg!(--"no-multicast-scouting" "Disable the multicast-based scouting mechanism."),
             arg!(--cmd_vel [topic] "The 'cmd_vel' ROS2 topic").default_value("/rt/turtle1/cmd_vel"),
@@ -207,6 +207,18 @@ fn parse_args() -> (Config, String, String, f64, f64) {
     };
     if let Some(Ok(mode)) = args.value_of("mode").map(|mode| mode.parse()) {
         config.set_mode(Some(mode)).unwrap();
+    }
+    if let Some(values) = args.values_of("connect") {
+        config
+            .connect
+            .endpoints
+            .extend(values.map(|v| v.parse().unwrap()))
+    }
+    if let Some(values) = args.values_of("listen") {
+        config
+            .listen
+            .endpoints
+            .extend(values.map(|v| v.parse().unwrap()))
     }
     if args.is_present("no-multicast-scouting") {
         config.scouting.multicast.set_enabled(Some(false)).unwrap();
