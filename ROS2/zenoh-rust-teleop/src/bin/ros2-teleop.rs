@@ -23,7 +23,7 @@ use futures::prelude::*;
 use futures::select;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt;
-use zenoh::config::Config;
+use zenoh::config::{Config, EndPoint};
 use zenoh::prelude::*;
 use zenoh::Session;
 
@@ -34,13 +34,13 @@ struct Cli {
     #[clap(short, long, possible_values =["peer","client"])]
     mode: Option<String>,
 
-    /// Peer locators used to initiate the zenoh session.
-    #[clap(short = 'e', long, value_name = "LOCATOR")]
-    peer: Option<Vec<String>>,
+    /// Endpoints to connect to.
+    #[clap(short = 'e', long, value_name = "ENDPOINT")]
+    connect: Option<Vec<EndPoint>>,
 
-    /// Locators to listen on.
-    #[clap(short, long, value_name = "LOCATOR")]
-    listener: Option<Vec<String>>,
+    /// Endpoints to listen on.
+    #[clap(short, long, value_name = "ENDPOINT")]
+    listen: Option<Vec<EndPoint>>,
 
     /// A configuration file.
     #[clap(short, long, value_name = "FILE")]
@@ -233,6 +233,14 @@ fn parse_args() -> (Config, String, String, f64, f64) {
     };
     if let Some(Ok(mode)) = cli.mode.map(|mode| mode.parse()) {
         config.set_mode(Some(mode)).unwrap();
+    }
+    if let Some(values) = cli.connect {
+        config.connect.endpoints
+            .extend(values)
+    }
+    if let Some(values) = cli.listen {
+        config.listen.endpoints
+            .extend(values)
     }
     if cli.no_multicast {
         config.scouting.multicast.set_enabled(Some(false)).unwrap();
